@@ -21,7 +21,7 @@ class PIDcontroller:
         self.I = np.array([0.0, 0.0, 0.0])
         self.lastError = np.array([0.0, 0.0, 0.0])
         self.timestep = 0.05
-        self.maximumValue = 0.1
+        self.maximumValue = 0.5
 
     def setTarget(self, targetx, targety, targetw):
         """
@@ -40,6 +40,11 @@ class PIDcontroller:
         self.target = np.array(state)
 
     def get_current_state_from_april_tag(self, currentState):
+        """
+        get the current state of the bot from april tags
+        by using transformations if tags are detected else echo
+        the currenState
+        """
         global detections
         for detection in detections:
             quaternion = np.array([
@@ -54,9 +59,6 @@ class PIDcontroller:
             c_t = np.array([[0.05], [0.015], [0.145]])
             rTc = np.vstack([np.hstack([c_rot, c_t]), [0, 0, 0, 1]])
             at_rot = quaternion_matrix(quaternion)[:3, :3]
-            # print(at_rot)
-            # print(np.dot(at_rot,at_t))
-            # print(at_rot.shape, at_t.shape)
             cTat = np.vstack([np.hstack([at_rot, at_t]), [0, 0, 0, 1]])
             atTr = np.linalg.inv(np.dot(rTc, cTat))
             print(tag_id)
@@ -68,16 +70,15 @@ class PIDcontroller:
                 at5_rot = np.array([[0, 0, -1], [1, 0, 0], [0, -1, 0]])
                 at5_t = np.array([[0], [2], [0]])
                 wTat = np.vstack([np.hstack([at5_rot, at5_t]), [0, 0, 0, 1]])
-
             elif tag_id == 3:
                 # if len(detections) > 1: continue
                 at3_rot = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]])
                 at3_t = np.array([[1], [2.85], [0]])
                 wTat = np.vstack([np.hstack([at3_rot, at3_t]), [0, 0, 0, 1]])
             elif tag_id == 4:
-                at5_rot = np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]])
-                at5_t = np.array([[0], [-1], [0]])
-                wTat = np.vstack([np.hstack([at5_rot, at5_t]), [0, 0, 0, 1]])
+                at4_rot = np.array([[-1, 0, 0], [0, 0, -1], [0, -1, 0]])
+                wTat = np.vstack(
+                    [np.hstack([at4_rot, [[0], [-1], [0]]]), [0, 0, 0, 1]])
             else:
                 print("Uknown April tag " + str(tag_id))
                 return currentState
@@ -151,8 +152,10 @@ def coord(twist, current_state):
 
 
 def april_tag_handler(message):
+    """
+    Callback handler for april tags. Sets global variable detections
+    """
     global detections
-    # detections = message.detections
     detections = message.detections
 
 
@@ -169,14 +172,15 @@ if __name__ == "__main__":
     # rospy.spin()
     rate = rospy.Rate(15)
 
-    waypoint = np.array([[0.0, 0.0, 0],
-                         [1.0, 0.0, 0],
+    waypoint = np.array([
+                         [0.0, 0.0, 0],
+                         [1.0, 0.0, 0.0],
                          [1.0, 2.0, np.pi],
                          [0.0, 0.0, 0.0]
                          ])
     wp = 0
     # init pid controller
-    pid = PIDcontroller(0.01, 0.001, 0.08)
+    pid = PIDcontroller(0.0185, 0.0015, 0.10)
 
     # init current state
     current_state = np.array([0.0, 0.0, 0.0])
@@ -198,15 +202,19 @@ if __name__ == "__main__":
         #print(coord(update_value, current_state))
         rospy.sleep(0.05)
 
+        # Code used to tune April tags position
+        
         # while True:
         #     current_state = pid.get_current_state_from_april_tag(current_state)
         #     print(current_state)
         #     rospy.sleep(1)
+
         # update the current state
         current_state += update_value
 
         while (
-                np.linalg.norm(pid.getError(current_state, wp)) > 0.1
+                np.linalg.norm(pid.getError(current_state, wp)[:2]) >= 0.15
+
         ):  # check the error between current state and current way point
             # calculate the current twist
             update_value = pid.update(current_state)
