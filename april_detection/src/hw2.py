@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 import sys
-from turtle import position
 import rospy
 from geometry_msgs.msg import Twist
+import matplotlib.pyplot as plt
 from april_detection.msg import AprilTagDetectionArray
 import numpy as np
 from tf.transformations import euler_from_matrix, quaternion_matrix
@@ -169,21 +169,26 @@ if __name__ == "__main__":
                                      AprilTagDetectionArray,
                                      april_tag_handler,
                                      queue_size=1)
-    # rospy.spin()
+    plt.figure()
+    plt.xlabel("X")
+    plt.ylabel("Y")
     rate = rospy.Rate(15)
+    current_state_array = []
 
     waypoint = np.array([
-                         [0.0, 0.0, 0],
-                         [1.0, 0.0, 0.0],
-                         [1.0, 2.0, np.pi],
-                         [0.0, 0.0, 0.0]
-                         ])
+        # [0.0, 0.0, 0],
+        [1.0, 0.0, -0.07],
+        [1.0, 2.0, -np.pi + 0.075],
+        [0.0, 0.0, 0.0]
+    ])
     wp = 0
     # init pid controller
-    pid = PIDcontroller(0.0185, 0.0015, 0.10)
+    pid = PIDcontroller(0.015, 0.002, 0.01)
 
     # init current state
     current_state = np.array([0.0, 0.0, 0.0])
+
+    color = 'skyblue'
 
     # in this loop we will go through each way point.
     # once error between the current state and the current way point is small enough,
@@ -203,7 +208,7 @@ if __name__ == "__main__":
         rospy.sleep(0.05)
 
         # Code used to tune April tags position
-        
+
         # while True:
         #     current_state = pid.get_current_state_from_april_tag(current_state)
         #     print(current_state)
@@ -213,8 +218,7 @@ if __name__ == "__main__":
         current_state += update_value
 
         while (
-                np.linalg.norm(pid.getError(current_state, wp)[:2]) >= 0.15
-
+                np.linalg.norm(pid.getError(current_state, wp)[:2]) >= 0.1
         ):  # check the error between current state and current way point
             # calculate the current twist
             update_value = pid.update(current_state)
@@ -227,6 +231,25 @@ if __name__ == "__main__":
             current_state += update_value
             current_state = pid.get_current_state_from_april_tag(current_state)
             print(current_state)
+            current_state_array.append(current_state[:2])
+
+        plt.plot(wp[0], wp[1], 'rx')
+        plt.text(wp[0] + 0.05, current_state[1] + 0.05, str(wp[:2]))
 
     # stop the car and exit
     pub_twist.publish(genTwistMsg(np.array([0.0, 0.0, 0.0])))
+    prev = None
+    for i, current_state in enumerate(current_state_array):
+        if i % 4 == 0:
+            plt.plot(current_state[0],
+                     current_state[1],
+                     marker='o',
+                     color=color)
+            if prev is not None:
+                plt.plot([current_state[0], prev[0]],
+                         [current_state[1], prev[1]],
+                         color=color)
+            prev = current_state
+    plt.savefig('/root/rosws/src/rb5_ros/april_detection/graph_' + color +
+                '.png',
+                dpi=120)
