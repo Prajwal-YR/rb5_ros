@@ -50,7 +50,7 @@ static GstFlowReturn processData(GstElement * sink, RbCamera::CustomData * data)
 
     timeval current_time;
     gettimeofday(&current_time, 0);
-    std::cout << current_time.tv_sec << "." << current_time.tv_usec << std::endl;
+    // std::cout << current_time.tv_sec << "." << current_time.tv_usec << std::endl;
 
     // Parse data from buffer, depending on the format, conversion might be needed.
     // cv::Mat frame_rgb = cv::Mat::zeros(width, height, CV_8UC3);
