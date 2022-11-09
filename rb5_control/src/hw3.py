@@ -5,10 +5,11 @@ import numpy as np
 import math
 import tf
 import tf2_ros
-from tf.transformations import quaternion_matrix
+from tf.transformations import quaternion_matrix,euler_from_quaternion
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 
-UPDATE_EVERY_STEPS = 3
+UPDATE_EVERY_STEPS = 7
 """
 The class of the pid controller.
 """
@@ -28,9 +29,10 @@ class PIDcontroller:
         self.S = np.zeros((3, 1))
         self.sigma = np.zeros((3, 3))
         self.current_detections = {}
+        self.seen_timestamps = {}
         self.tag_to_row = {}
-        self.q = 0.01
-        self.r = 0.01
+        self.q = 0.0001
+        self.r = 0.0001
 
     def setTarget(self, targetx, targety, targetw):
         """
@@ -88,12 +90,15 @@ class PIDcontroller:
 
         # twist_cord[2] = (self.S[2] + np.pi) % (2 * np.pi) - np.pi
         # print("Twist in predict",twist_cord, twist_cord.shape)
-        detections = filter(lambda i: 'camera_' in i, l.getFrameStrings())
+        detections = filter(lambda i: 'marker_' in i, l.getFrameStrings())
+        self.current_detections = {}
         for detection in detections:
             try:
-                (trans, rot) = l.lookupTransform(detection,
-                                                 "marker_" + detection[-1],
-                                                 rospy.Time())
+                latest_timestamp = l.getLatestCommonTimestamp("camera_"+detection[-1], detection)
+                if detection in self.seen_timestamps and self.seen_timestamps[detection] == latest_timestamp:
+                    continue
+                self.seen_timestamps[detection] = latest_timestamp
+                (trans, rot) = l.lookupTransform("camera_"+detection[-1], detection,rospy.Time())
                 # print("Trans [0]",trans[0])
                 matrix = quaternion_matrix(rot)
                 angle = math.atan2(matrix[1][2], matrix[0][2])
@@ -103,14 +108,13 @@ class PIDcontroller:
                 if detection not in self.tag_to_row:
                     self.tag_to_row[detection] = len(self.S)
                     x_r, y_r, theta_r = self.S[0:3, 0]
-                    s_for_new = np.array([[
-                        trans[0] * np.cos(theta_r) +
-                        trans[1] * np.cos(theta_r) + x_r
-                    ],
-                                          [
-                                              -trans[0] * np.sin(theta_r) +
-                                              trans[1] * np.cos(theta_r) + y_r
-                                          ], [angle + theta_r]])
+                    T_mat = np.array([[-np.cos(theta_r), -np.sin(theta_r), x_r],
+                                      [np.sin(theta_r), -np.cos(theta_r), y_r],
+                                      [0, 0, 1]])
+
+                    s_for_new = np.dot(T_mat,
+                                       np.array([[trans[0]], [trans[1]], [1]]))
+                    s_for_new[-1,0] = angle+theta_r
                     print(s_for_new.shape, self.S.shape)
                     self.S = np.vstack([self.S, s_for_new])
                     self.sigma = np.hstack([
@@ -128,7 +132,9 @@ class PIDcontroller:
         twist_matrix[0:3, 0] = twist_cord
         self.S = self.S + twist_matrix
         self.sigma = self.sigma + self.q * np.eye(len(self.sigma))
-        self.S[2, 0] = (self.S[2, 0] + np.pi) % (2 * np.pi) - np.pi
+        for i in range(0,len(self.S),3):
+            self.S[i+2, 0] = (self.S[i+2, 0] + np.pi) % (2 * np.pi) - np.pi
+        
 
     def kalman_update(self):
         if len(self.current_detections) == 0:
@@ -147,6 +153,8 @@ class PIDcontroller:
         K = np.dot(np.dot(self.sigma, H.T), S_INV)
         self.S = self.S + np.dot(K, z_t - np.dot(H, self.S))
         self.sigma = np.dot(np.eye(len(self.S)) - np.dot(K, H), self.sigma)
+        for i in range(0, len(self.S), 3):
+            self.S[i + 2, 0] = (self.S[i + 2, 0] + np.pi) % (2 * np.pi) - np.pi
 
     def getCurrentPos(self):
         return self.S[0:3, 0]
@@ -177,12 +185,25 @@ def coord(twist, current_state):
     return np.dot(J, twist)
 
 def plot_ground_truth():
+    # colors = cm.rainbow(np.linspace(0, 1, 8))
+    # plt.plot(, marker='x', color = colors[0])
+    # plt.text(,"tag_0", color = colors[0])
     pass
+    
 
-def plot_state(state):
-    plt.plot(state[0,0],state[1,0],marker='o',color = 'skyblue')
+def plot_states(states, tag_to_row):
+    tags = tag_to_row.keys()
+    row_indices = tag_to_row.values()
+    for state in states:
+        plt.plot(state[0,0],state[1,0],marker='o',color = 'skyblue')
+    colors = iter(cm.rainbow(np.linspace(0, 1, len(state)//3)))
     for i in range(3, len(state), 3):
-        plt.plot(state[i,0], state[i+1,0], marker='x', color = 'maroon')
+        color = next(colors)
+        plt.plot(state[i,0], state[i+1,0], marker='x', color = color)
+        plt.text(state[i,0], state[i+1,0],
+                 tags[row_indices.index(i)].replace("camera","tag"), color = color)
+
+    print(tag_to_row)
     plt.savefig('/root/rosws/src/rb5_ros/rb5_control/src/state_graph.png', dpi=120)
 
 
@@ -202,7 +223,14 @@ if __name__ == "__main__":
         #  [0.0, 1.0, np.pi],
         [0.0, 1.0, -np.pi / 2],
         #  [0.0, 0.0, -np.pi / 2],
-        [0.0, 0.0, 0.0]
+        [0.0, 0.0, 0.0],
+        #  [1.0, 0.0, 0.0],
+        [1.0, 0.0, np.pi / 2],
+        #  [1.0, 1.0, np.pi / 2],
+        [1.0, 1.0, np.pi],
+        #  [0.0, 1.0, np.pi],
+        [0.0, 1.0, -np.pi / 2],
+        #  [0.0, 0.0, -np.pi / 2],
     ])
 
     # init pid controller
@@ -228,8 +256,9 @@ if __name__ == "__main__":
         # update the current state
         pid.kalman_predict(update_value, listener)
         current_state += update_value
-        # current_state = pid.getCurrentPos()
+        current_state = pid.getCurrentPos()
         i = 0
+        S_history = []
         while (
                 np.linalg.norm(pid.getError(current_state, wp)) > 0.05
         ):  # check the error between current state and current way point
@@ -245,8 +274,10 @@ if __name__ == "__main__":
             if i % UPDATE_EVERY_STEPS == 0:
                 pid.kalman_update()
             current_state += update_value
-            # current_state = pid.getCurrentPos()
-            plot_state(pid.S)
+            S_history.append(pid.S)
+            current_state = pid.getCurrentPos()
             print(pid.S, pid.S.shape)
+        pub_twist.publish(genTwistMsg([0, 0, 0]))
+        plot_states(S_history,pid.tag_to_row)
     # stop the car and exit
     pub_twist.publish(genTwistMsg(np.array([0.0, 0.0, 0.0])))
