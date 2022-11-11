@@ -19,9 +19,9 @@ AprilDetection det;
 
 // TODO: Replace these parameters using your calibration results
 double distortion_coeff[] = {
-    0.004217, -0.012102, -0.003213, -0.000596, 0.000000};
-double intrinsics[] = {664.465008, 0.000000, 962.769822,
-                       0.000000, 665.534826, 510.778487,
+    0.004591, -0.011087, -0.000892, -0.002048, 0.000000};
+double intrinsics[] = {677.857670, 0.000000, 968.012964,
+                       0.000000, 674.690215, 528.581424,
                        0., 0., 1.};
 
 const cv::Mat d(cv::Size(1, 5), CV_64FC1, distortion_coeff);
@@ -75,9 +75,9 @@ void publishTransforms(vector<apriltag_pose_t> poses, vector<int> ids, std_msgs:
 
     tf.setRotation(q);
     string marker_name = "marker_" + to_string(ids[i]);
-    string camera_name = "camera_" + to_string(ids[i]);
-    br.sendTransform(tf::StampedTransform(tf.inverse(), ros::Time::now(), marker_name, camera_name));
-    // br.sendTransform(tf::StampedTransform(tf, ros::Time::now(), "camera", marker_name));
+    // string camera_name = "camera_" + to_string(ids[i]);
+    // br.sendTransform(tf::StampedTransform(tf.inverse(), ros::Time::now(), marker_name, camera_name));
+    br.sendTransform(tf::StampedTransform(tf, ros::Time::now(), "camera", marker_name));
     // ROS_INFO("Transformation published for marker.");
 
     // Prepare PoseArray message

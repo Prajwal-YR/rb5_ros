@@ -1,5 +1,7 @@
 <launch>
   <include file="$(find rb5_control)/launch/mbot_bringup.launch" />
   <include file="$(find april_detection)/launch/april_detection_cam_main.launch" />
+  <!-- <node pkg="tf" type="static_transform_publisher" name="camera_robot_trans" args="0 0 0 1.57 -1.57 0 camera robot 100" /> -->
+  <node pkg="tf" type="static_transform_publisher" name="robot_camera_trans" args="0 0 0 -1.57 0 -1.57 robot camera 100" />  
   <node pkg="rb5_control" type="hw3.py" name="hw3_node" output="screen" /> 
 </launch>

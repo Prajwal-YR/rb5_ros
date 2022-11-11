@@ -38,9 +38,9 @@ class MegaPiController:
                   " vbr: " + repr(int(round(vbr,0))))
             
         cfl = 1.0
-        cfr = 1.05
+        cfr = 1.0 #1.05
         cbl = 1.0
-        cbr = 0.975
+        cbr = 1.0 #0.975
         self.bot.motorRun(self.mfl,cfl*-vfl)
         self.bot.motorRun(self.mfr,cfr*vfr)
         self.bot.motorRun(self.mbl,cbl*-vbl)
