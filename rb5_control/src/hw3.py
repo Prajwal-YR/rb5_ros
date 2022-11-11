@@ -6,6 +6,7 @@ import math
 import tf
 import tf2_ros
 from tf.transformations import quaternion_matrix, quaternion_from_euler
+from matplotlib.patches import Ellipse
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
@@ -26,13 +27,13 @@ class PIDcontroller:
         self.lastError = np.array([0.0, 0.0, 0.0])
         self.timestep = 0.1
         self.maximumValue = 0.02
-        self.S = np.zeros((3, 1))
+        self.S = np.array([1 / 3.0, 0, 0]).reshape(-1, 1)  #np.zeros((3, 1))  #
         self.sigma = np.zeros((3, 3))
         self.current_detections = {}
         self.seen_timestamps = {}
         self.tag_to_row = {}
-        self.q = 5e-2
-        self.r = 1e-3
+        self.q = 5e-4
+        self.r = 5e-4
 
     def setTarget(self, targetx, targety, targetw):
         """
@@ -108,7 +109,7 @@ class PIDcontroller:
                 pass
         for tag_id in tags:
             try:
-                print("Tag id", tag_id)
+                # print("Tag id", tag_id)
                 (trans,
                  rot) = l.lookupTransform("robot", "marker_" + tag_id,
                                           self.seen_timestamps[str(tag_id)])
@@ -121,8 +122,8 @@ class PIDcontroller:
                 self.current_detections[tag_id] = np.array([[trans[0]],
                                                             [trans[1]],
                                                             [angle]])
-                print("tag to Row", self.tag_to_row,
-                      self.current_detections[tag_id])
+                # print("tag to Row", self.tag_to_row,
+                #       self.current_detections[tag_id])
                 if tag_id not in self.tag_to_row:
                     br.sendTransform((self.S[0, 0], self.S[1, 0], 0),
                                      quaternion_from_euler(0, 0, self.S[2, 0]),
@@ -144,7 +145,7 @@ class PIDcontroller:
                     #                    np.array([[trans[0]], [trans[1]], [1]]))
                     # s_for_new[-1, 0] = angle + theta_r
                     self.tag_to_row[tag_id] = len(self.S)
-                    print("Updated tag to row", self.tag_to_row)
+                    # print("Updated tag to row", self.tag_to_row)
                     self.S = np.vstack([self.S, s_for_new])
                     self.sigma = np.hstack([
                         np.vstack([self.sigma,
@@ -242,13 +243,13 @@ def plot_states(states, tag_to_row, name="state_graph"):
     tags = tag_to_row.keys()
     row_indices = tag_to_row.values()
     for state in states:
-        plt.plot(state[0, 0], state[1, 0], marker='o', color='skyblue')
+        plt.plot(state[0, 0], state[1, 0], marker='o', color='orange')
     if len(states) > 0:
         state = states[-1]
         colors = iter(cm.rainbow(np.linspace(0, 1, len(state) // 3)))
         for i in range(3, len(state), 3):
             color = next(colors)
-            plt.plot(state[i, 0], state[i + 1, 0], marker='x', color=color)
+            plt.plot(state[i, 0], state[i + 1, 0], marker='x', color='maroon')
             plt.text(state[i, 0],
                      state[i + 1, 0],
                      tags[row_indices.index(i)],
@@ -257,6 +258,37 @@ def plot_states(states, tag_to_row, name="state_graph"):
     print(tag_to_row)
     plt.savefig('/root/rosws/src/rb5_ros/rb5_control/src/' + name + '.png',
                 dpi=120)
+
+
+def plot_final_states(state, cov, tag_to_row):
+    fig = plt.figure(dpi=120)
+    tags = tag_to_row.keys()
+    row_indices = tag_to_row.values()
+    ax = plt.subplot(111)
+    colors = iter(cm.rainbow(np.linspace(0, 1, len(state) // 3)))
+    for i in range(1, len(state) // 3):
+        # print("i",i)
+        cov_mat = cov[3 * i:3 * (i + 1) - 1, 3 * i:3 * (i + 1) - 1]
+        x, y = state[3 * i, 0], state[3 * i + 1, 0]
+        # print("cov_mat",cov_mat)
+        lambda_, v = np.linalg.eig(cov_mat)
+        # print("v",v,"arccos",np.arccos(v[0,0]))
+        lambda_ = np.sqrt(lambda_)
+
+        for j in range(1, 2):
+            ell = Ellipse(xy=(x, y),
+                          width=lambda_[0] * j * 2,
+                          height=lambda_[1] * j * 2,
+                          edgecolor='red',
+                          angle=np.rad2deg((np.arccos(v[0, 0]) + 0j).real))
+            ell.set_facecolor('none')
+            ax.add_artist(ell)
+        color = next(colors)
+        plt.plot(x, y, marker='x', color='maroon')
+        plt.text(x, y, tags[row_indices.index(3 * i)], color='black')
+    ax.set_xlim(-3, 3)
+    ax.set_ylim(-3, 3)
+    fig.savefig('/root/rosws/src/rb5_ros/rb5_control/src/tag_map.png', dpi=120)
 
 
 if __name__ == "__main__":
@@ -269,33 +301,72 @@ if __name__ == "__main__":
 
     waypoint = np.array([
         [0.0, 0.0, 0.0],
-        [0.5, 0.0, np.pi/4],
+        [1.0, 0.0, 0.0],
         [1.0, 0.0, np.pi / 2],
-        [1.0, 0.5, 3*np.pi / 4],
+        [1.0, 1.0, np.pi / 2],
         [1.0, 1.0, np.pi],
-        [0.5, 1.0, -3*np.pi/4],
+        [0.0, 1.0, np.pi],
         [0.0, 1.0, -np.pi / 2],
-        [0.0, 0.5, -np.pi / 4],
-        [0.0, 0.0, 0.0],
-        #  [1.0, 0.0, 0.0],
+        [0.0, 0.0, -np.pi / 2],
+        # [0.0, 0.0, 0.0],
+        # [1.0, 0.0, 0.0],
         # [1.0, 0.0, np.pi / 2],
-        #  [1.0, 1.0, np.pi / 2],
+        # [1.0, 1.0, np.pi / 2],
         # [1.0, 1.0, np.pi],
-        #  [0.0, 1.0, np.pi],
+        # [0.0, 1.0, np.pi],
         # [0.0, 1.0, -np.pi / 2],
-        #  [0.0, 0.0, -np.pi / 2],
+        # [0.0, 0.0, -np.pi / 2],
+        [0.0, 0.0, 0.0],
     ])
+
+    waypoint = np.array(
+        [
+            [1 / 3.0, 0, 0],
+            [2 / 3.0, 0.0, 0],
+            [2 / 3.0, 0, np.pi / 4],
+            [1.0, 1 / 3.0, np.pi / 4],
+            [1.0, 1 / 3.0, np.pi / 2],
+            [1.0, 2 / 3.0, np.pi / 2],
+            [1.0, 2 / 3.0, 3 * np.pi / 4],
+            [2 / 3.0, 1.0, 3 * np.pi / 4],
+            [2 / 3.0, 1.0, -np.pi],
+            [1 / 3.0, 1.0, -np.pi],
+            [1 / 3.0, 1.0, -3 * np.pi / 4],
+            [0.0, 2 / 3.0, -3 * np.pi / 4],
+            [0.0, 2 / 3.0, -np.pi / 2],
+            [0.0, 1 / 3.0, -np.pi / 2],
+            [0.0, 1 / 3.0, -np.pi / 4],
+            [1 / 3.0, 0.0, -np.pi / 4],
+            [1 / 3.0, 0.0, 0],
+            # [2 / 3.0, 0.0, 0],
+            # [2 / 3.0, 0, np.pi / 4],
+            # [1.0, 1 / 3.0, np.pi / 4],
+            # [1.0, 1 / 3.0, np.pi / 2],
+            # [1.0, 2 / 3.0, np.pi / 2],
+            # [1.0, 2 / 3.0, 3 * np.pi / 4],
+            # [2 / 3.0, 1.0, 3 * np.pi / 4],
+            # [2 / 3.0, 1.0, -np.pi],
+            # [1 / 3.0, 1.0, -np.pi],
+            # [1 / 3.0, 1.0, -3 * np.pi / 4],
+            # [0.0, 2 / 3.0, -3 * np.pi / 4],
+            # [0.0, 2 / 3.0, -np.pi / 2],
+            # [0.0, 1 / 3.0, -np.pi / 2],
+            # [0.0, 1 / 3.0, -np.pi / 4],
+            # [1 / 3.0, 0.0, -np.pi / 4],
+            # [1 / 3.0, 0.0, 0],
+        ],
+        dtype=float)
 
     # init pid controller
     pid = PIDcontroller(0.05, 0.007, 0.005)
 
     # init current state
-    current_state = np.array([0.0, 0.0, 0.0])
+    current_state = np.array([1 / 3.0, 0, 0])
 
     # in this loop we will go through each way point.
     # once error between the current state and the current way point is small enough,
     # the current way point will be updated with a new point.
-    for wp in waypoint:
+    for index, wp in enumerate(waypoint):
         print("move to way point", wp)
         # set wp as the target point
         pid.setTarget(wp)
@@ -313,7 +384,7 @@ if __name__ == "__main__":
         i = 0
         S_history = []
         while (
-                np.linalg.norm(pid.getError(current_state, wp)) > 0.05
+                np.linalg.norm(pid.getError(current_state, wp)) > 0.1
         ):  # check the error between current state and current way point
             # calculate the current twist
             update_value = pid.update(current_state)
@@ -329,12 +400,14 @@ if __name__ == "__main__":
             current_state += update_value
             S_history.append(pid.S.copy())
             current_state = pid.getCurrentPos()
-            print("S in main", pid.S, pid.S.shape)
+            print("S in main", pid.S[0:3, 0], pid.S.shape)
             print("Sigma in main", np.linalg.norm(pid.sigma), pid.sigma.shape)
         pub_twist.publish(genTwistMsg([0, 0, 0]))
-        plot_states(S_history, pid.tag_to_row)
-        time.sleep(0.05)
+        if index % 2 == 1:
+            print("Plotting for wp ", wp)
+            plot_states(S_history, pid.tag_to_row)
+        time.sleep(0.5)
     # stop the car and exit
-    plt.figure()
-    plot_states([pid.S.copy()], pid.tag_to_row, "tag_graph")
+    np.save("cov.npy", pid.sigma)
+    plot_final_states(pid.S.copy(), pid.sigma, pid.tag_to_row)
     pub_twist.publish(genTwistMsg(np.array([0.0, 0.0, 0.0])))
